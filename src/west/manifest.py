@@ -7,6 +7,7 @@
 Parser and abstract data types for west manifests.
 '''
 
+import asyncio
 from collections import deque
 import enum
 import errno
@@ -16,7 +17,6 @@ from pathlib import PurePosixPath, Path
 import re
 import shlex
 import subprocess
-import sys
 from typing import Any, Callable, Dict, Iterable, List, NoReturn, \
     NamedTuple, Optional, Set, TYPE_CHECKING, Union
 
@@ -933,13 +933,6 @@ class Project:
                 cwd = self.abspath
             else:
                 raise ValueError('no abspath; cwd must be given')
-        elif sys.version_info < (3, 6, 1) and not isinstance(cwd, str):
-            # Popen didn't accept a PathLike cwd on Windows until
-            # python v3.7; this was backported onto cpython v3.6.1,
-            # though. West currently supports "python 3.6", though, so
-            # in the unlikely event someone is running 3.6.0 on
-            # Windows, do the right thing.
-            cwd = os.fspath(cwd)
 
         args = ['git'] + cmd_list + extra_args
         cmd_str = util.quote_sh_list(args)
@@ -964,6 +957,67 @@ class Project:
                                                 output=stdout, stderr=stderr)
         else:
             return subprocess.CompletedProcess(popen.args, popen.returncode,
+                                               stdout, stderr)
+
+    async def git_async(self, cmd: Union[str, List[str]],
+                        extra_args: Iterable[str] = (),
+                        capture_stdout: bool = False,
+                        capture_stderr: bool = False,
+                        check: bool = True,
+                        cwd: Optional[PathType] = None) -> subprocess.CompletedProcess:
+        '''Run a git command asynchronously in the project repository.
+
+        :param cmd: git command as a string (or list of strings)
+        :param extra_args: sequence of additional arguments to pass to
+            the git command (useful mostly if *cmd* is a string).
+        :param capture_stdout: if True, git's standard output is
+            captured in the ``CompletedProcess`` instead of being
+            printed.
+        :param capture_stderr: Like *capture_stdout*, but for standard
+            error. Use with caution: this may prevent error messages
+            from being shown to the user.
+        :param check: if given, ``subprocess.CalledProcessError`` is
+            raised if git finishes with a non-zero return code
+        :param cwd: directory to run git in (default: ``self.abspath``)
+        '''
+        if isinstance(cmd, str):
+            cmd_list = shlex.split(cmd)
+        else:
+            cmd_list = list(cmd)
+
+        extra_args = list(extra_args)
+
+        if cwd is None:
+            if self.abspath is not None:
+                cwd = self.abspath
+            else:
+                raise ValueError('no abspath; cwd must be given')
+
+        args = ['git'] + cmd_list + extra_args
+        cmd_str = util.quote_sh_list(args)
+
+        _logger.debug(f"running '{cmd_str}' in {cwd}")
+        popen = await asyncio.create_subprocess_exec(
+                *args, cwd=cwd,
+                stdout=asyncio.subprocess.PIPE if capture_stdout else None,
+                stderr=asyncio.subprocess.PIPE if capture_stderr else None)
+
+        stdout, stderr = await popen.communicate()
+        if TYPE_CHECKING:
+            assert popen.returncode is not None
+
+        # We use logger style % formatting here to avoid the
+        # potentially expensive overhead of formatting long
+        # stdout/stderr strings if the current log level isn't DEBUG,
+        # which is the usual case.
+        _logger.debug('"%s" exit code: %d stdout: %r stderr: %r',
+                      cmd_str, popen.returncode, stdout, stderr)
+
+        if check and popen.returncode:
+            raise subprocess.CalledProcessError(popen.returncode, cmd_list,
+                                                output=stdout, stderr=stderr)
+        else:
+            return subprocess.CompletedProcess(cmd_str, popen.returncode,
                                                stdout, stderr)
 
     def sha(self, rev: str, cwd: Optional[PathType] = None) -> str:

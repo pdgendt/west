@@ -972,6 +972,10 @@ class Update(_ProjectCommand):
                            help='''git configuration option to set when running
                            'git submodule init' in '<option>=<value>' format;
                            may be given more than once''')
+        group.add_argument('-j', '--jobs', nargs='?', const=-1,
+                           default=1, type=int, action='store',
+                           help='''Use multiple jobs to parallelize updates.
+                           Pass no number or -1 to run updates on all cores.''')
 
         group = parser.add_argument_group('deprecated options')
         group.add_argument('-x', '--exclude-west', action='store_true',
@@ -987,13 +991,15 @@ class Update(_ProjectCommand):
         self.die_if_no_git()
         self.init_state(args)
 
+        sem = asyncio.Semaphore(args.jobs if args.jobs > 0 else os.cpu_count() or sys.maxsize)
+
         # We can't blindly call self._projects() here: manifests with
         # imports are limited to plain 'west update', and cannot use
         # 'west update PROJECT [...]'.
         if not self.args.projects:
-            self.update_all()
+            asyncio.run(self.update_all(sem))
         else:
-            self.update_some()
+            asyncio.run(self.update_some(sem))
 
     def init_state(self, args):
         # Helper for initializing instance state in response to
@@ -1031,7 +1037,7 @@ class Update(_ProjectCommand):
 
         self.fs = self.fetch_strategy()
 
-    def update_all(self):
+    async def update_all(self, sem):
         # Plain 'west update' is the 'easy' case: since the user just
         # wants us to update everything, we don't have to keep track
         # of projects appearing or disappearing as a result of fetching
@@ -1099,7 +1105,7 @@ class Update(_ProjectCommand):
                      f'file at URL {project.url}\n'
                      '          - remove the "import:"' + suggest_vvv)
 
-    def update_some(self):
+    async def update_some(self, sem):
         # The 'west update PROJECT [...]' style invocation is only
         # implemented for projects defined within the manifest
         # repository.
