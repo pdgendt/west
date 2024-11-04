@@ -498,6 +498,7 @@ def _is_submodule_dict_ok(subm: Any) -> bool:
 
 #
 # Public functions
+# Add a random comment
 #
 
 def manifest_path() -> str:
@@ -627,6 +628,7 @@ def is_group(raw_group: RawGroupType) -> bool:
     #       "--group-filter=path-prefix:foo" to create additional logical
     #       groups based on the workspace layout or other metadata
 
+    #this will give a format error
     return ((raw_group >= 0) if isinstance(raw_group, (float, int)) else
             bool(raw_group and not _RESERVED_GROUP_RE.search(raw_group)))
 
