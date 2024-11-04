@@ -1,0 +1,57 @@
+name: Format check
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '**.py'
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    outputs:
+      files: ${{ steps.git-diff-filter.outputs.files }}
+    name: Detect added and changed files
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: GrantBirki/git-diff-action@v2
+        id: git-diff-action
+        with:
+          base_branch: origin/main
+          search_path: '**.py'
+          # Ignore deleted files
+          git_options: '--no-color --diff-filter=d'
+
+      - name: Filter json diff
+        id: git-diff-filter
+        env:
+          JSON_DIFF: ${{ steps.git-diff-action.outputs.json-diff }}
+        run: |
+          echo $JSON_DIFF | jq
+          files=$(echo $JSON_DIFF | jq -c -r '[.files[] | {path: .path}]')
+          echo "files=$files" >> $GITHUB_OUTPUT
+
+  check-files:
+    needs: generate
+    if: ${{ needs.generate.outputs.files != '[]' }}
+    runs-on: ubuntu-latest
+    # Allow the workflow run to pass when this job fails
+    continue-on-error: true
+    strategy:
+      matrix:
+        files: ${{ fromJSON(needs.generate.outputs.files) }}
+    name: Check file ${{ matrix.files.path }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/ruff-action@v1
+        with:
+          args: "format --check --diff"
+          src: "${{ matrix.files.path }}"
+      - if: ${{ failure() }}
+        run: |
+          echo "::warning file=${{ matrix.files.path }},title=File format check failed::Run 'ruff format ${{ matrix.files.path }}'"
