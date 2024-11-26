@@ -6,6 +6,7 @@
 '''West project commands'''
 
 import argparse
+import contextlib
 import logging
 import os
 import shlex
@@ -128,10 +129,8 @@ class _ProjectCommand(WestCommand):
             # are no notable changes, so any output at all
             # means we should run 'git status' on the project.
             stdout, stderr = None, None
-            try:
+            with contextlib.suppress(subprocess.TimeoutExpired):
                 stdout, stderr = popen.communicate(timeout=0.1)
-            except subprocess.TimeoutExpired:
-                pass
             return stdout or stderr
 
         while True:

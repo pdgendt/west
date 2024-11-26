@@ -49,16 +49,19 @@ namespaces = false
 line-length = 100
 
 [tool.ruff.lint]
-extend-select = [
-  "I",   # isort
+select = [
   "B",   # flake8-bugbear
   "E",   # pycodestyle errors
   "F",   # Pyflakes
+  "I",   # isort
+  "SIM", # flake8-simplify
   "UP",  # pyupgrade
   "W",   # pycodestyle warnings
 ]
 ignore = [
-  "UP027", # deprecated pyupgrade rule
+  "SIM108", # Allow if-else blocks instead of forcing ternary operator
+  "SIM300", # Allow Yoda conditions
+  "UP027",  # deprecated pyupgrade rule
 ]
 
 [tool.ruff.format]

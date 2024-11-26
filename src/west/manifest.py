@@ -2268,11 +2268,10 @@ class Manifest:
         # md = manifest defaults (dictionary with values parsed from
         # the manifest)
         mdrem: Optional[str] = defaults.get('remote')
-        if mdrem:
+        if mdrem and mdrem not in url_bases:
             # The default remote name, if provided, must refer to a
             # well-defined remote.
-            if mdrem not in url_bases:
-                self._malformed(f'default remote {mdrem} is not defined')
+            self._malformed(f'default remote {mdrem} is not defined')
         return _defaults(mdrem, defaults.get('revision', _DEFAULT_REV))
 
     def _load_projects(self, manifest: dict[str, Any],
@@ -2364,7 +2363,7 @@ class Manifest:
         # regardless of self._ctx.import_flags. The 'ignore' type flags
         # just mean ignore the imported data. The path-prefix in this
         # manifest affects the project no matter what.
-        imp = pd.get('import', None)
+        imp = pd.get('import')
         if isinstance(imp, dict):
             pfx = self._load_imap(imp, f'project {name}').path_prefix
         else:

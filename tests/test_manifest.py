@@ -9,6 +9,7 @@
 # it's particularly inconvenient to test something without a real git
 # repository, go ahead and make one in a temporary directory.
 
+import contextlib
 import logging
 import os
 import platform
@@ -1354,11 +1355,9 @@ def test_project_filter_validation(config_tmpdir):
         for configfile in [ConfigFile.SYSTEM,
                            ConfigFile.GLOBAL,
                            ConfigFile.LOCAL]:
-            try:
+            with contextlib.suppress(KeyError):
                 config.delete('manifest.project-filter',
                               configfile=configfile)
-            except KeyError:
-                pass
 
     def check_error(project_filter, expected_err_contains):
         for configfile in [ConfigFile.SYSTEM,

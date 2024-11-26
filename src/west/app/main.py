@@ -12,6 +12,7 @@ Nothing in here is public API.
 '''
 
 import argparse
+import contextlib
 import logging
 import os
 import platform
@@ -253,10 +254,8 @@ class WestApp:
         # See if we're in a workspace. It's fine if we're not.
         # Note that this falls back on searching from ZEPHYR_BASE
         # if the current directory isn't inside a west workspace.
-        try:
+        with contextlib.suppress(WestNotFound):
             self.topdir = west_topdir()
-        except WestNotFound:
-            pass
 
         # Read the configuration files. We need this to get
         # manifest.path to parse the manifest, etc.
@@ -785,11 +784,9 @@ class WestApp:
                     projects = manifest.get_projects(['zephyr'],
                                                      allow_paths=False)
                 except ValueError:
-                    try:
+                    with contextlib.suppress(ValueError):
                         projects = manifest.get_projects([Path(topdir) /
                                                           'zephyr'])
-                    except ValueError:
-                        pass
                 if projects:
                     zephyr = projects[0]
                     config.set('zephyr.base', zephyr.path)
@@ -1104,7 +1101,7 @@ class WestArgumentParser(argparse.ArgumentParser):
         # Track information we want for formatting help.  The argparse
         # module calls kwargs.pop(), so can't call super first without
         # losing data.
-        optional = {'options': [], 'metavar': kwargs.get('metavar', None)}
+        optional = {'options': [], 'metavar': kwargs.get('metavar')}
         need_metavar = (optional['metavar'] is None and
                         kwargs.get('action') in (None, 'store'))
         for arg in args:

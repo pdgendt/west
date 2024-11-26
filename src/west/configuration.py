@@ -36,6 +36,7 @@ lowest.
 '''
 
 import configparser
+import contextlib
 import os
 import platform
 import warnings
@@ -601,7 +602,7 @@ def _location(cfg: ConfigFile, topdir: Optional[PathType] = None,
             #
             # See https://github.com/zephyrproject-rtos/west/issues/300
             # for details.
-            pd = PureWindowsPath(os.environ['ProgramData'])
+            pd = PureWindowsPath(os.environ['ProgramData'])  # noqa: SIM112
             return os.fspath(pd / 'west' / 'config')
 
         raise ValueError('unsupported platform ' + plat)
@@ -638,10 +639,8 @@ def _gather_configs(cfg: ConfigFile, topdir: Optional[PathType]) -> list[str]:
     if cfg == ConfigFile.ALL or cfg == ConfigFile.GLOBAL:
         ret.append(_location(ConfigFile.GLOBAL, topdir=topdir))
     if cfg == ConfigFile.ALL or cfg == ConfigFile.LOCAL:
-        try:
+        with contextlib.suppress(WestNotFound):
             ret.append(_location(ConfigFile.LOCAL, topdir=topdir))
-        except WestNotFound:
-            pass
 
     return ret
 
