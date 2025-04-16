@@ -18,10 +18,10 @@ from dataclasses import dataclass
 from enum import IntEnum
 from pathlib import Path
 from types import ModuleType
-from typing import Callable, NoReturn, Optional
+from typing import Any, Callable, NoReturn, Optional
 
 import colorama
-import pykwalify
+import jsonschema
 import yaml
 
 from west.configuration import Configuration
@@ -36,8 +36,7 @@ This package also provides support for extension commands.'''
 
 __all__ = ['CommandContextError', 'CommandError', 'WestCommand']
 
-_EXT_SCHEMA_PATH = os.path.join(os.path.dirname(__file__),
-                                'west-commands-schema.yml')
+_EXT_SCHEMA_PATH = Path(os.path.join(os.path.dirname(__file__), 'west-commands-schema.yml'))
 
 # Cache which maps files implementing extension commands to their
 # imported modules.
@@ -45,6 +44,22 @@ _EXT_MODULES_CACHE: dict[str, ModuleType] = {}
 # Infinite iterator of "fresh" extension command module names.
 _EXT_MODULES_NAME_IT = (f'west.commands.ext.cmd_{i}'
                         for i in itertools.count(1))
+
+def _load(data: str) -> Any:
+    try:
+        return yaml.safe_load(data)
+    except yaml.scanner.ScannerError as e:
+        raise ExtensionCommandError from e
+
+def _load_schema():
+    schema = _load(_EXT_SCHEMA_PATH.read_text(encoding=Manifest.encoding))
+    globals()["SCHEMA"] = schema
+    return schema
+
+def __getattr__(name: str) -> Any:
+    if name == "SCHEMA":
+        return _load_schema()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 class CommandError(RuntimeError):
     '''Indicates that a command failed.'''
@@ -653,10 +668,8 @@ def _ext_specs(project):
             except yaml.YAMLError as e:
                 raise ExtensionCommandError from e
         try:
-            pykwalify.core.Core(
-                source_data=commands_spec,
-                schema_files=[_EXT_SCHEMA_PATH]).validate()
-        except pykwalify.errors.SchemaError as e:
+            jsonschema.validate(commands_spec, sys.modules[__name__].SCHEMA)
+        except jsonschema.ValidationError as e:
             raise ExtensionCommandError from e
 
         for commands_desc in commands_spec['west-commands']:

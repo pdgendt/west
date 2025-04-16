@@ -17,8 +17,8 @@ classifiers = [
 requires-python = ">=3.9"
 dependencies = [
     "colorama",
+    "jsonschema",
     "PyYAML>=5.1",
-    "pykwalify",
     "setuptools",
     "packaging",
 ]

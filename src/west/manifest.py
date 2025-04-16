@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any, Callable, NamedTuple, NoReturn, Optional, Union
 
-import pykwalify.core
+import jsonschema
 import yaml
 from packaging.version import parse as parse_version
 
@@ -190,7 +190,7 @@ class _defaults(NamedTuple):
 
 _DEFAULT_REV = 'master'
 _WEST_YML = 'west.yml'
-_SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "manifest-schema.yml")
+_SCHEMA_PATH = Path(os.path.join(os.path.dirname(__file__), "manifest-schema.yml"))
 _SCHEMA_VER = parse_version(SCHEMA_VERSION)
 _EARLIEST_VER_STR = '0.6.99'  # we introduced the version feature after 0.6
 _VALID_SCHEMA_VERS = [
@@ -207,6 +207,16 @@ def _load(data: str) -> Any:
         return yaml.safe_load(data)
     except yaml.scanner.ScannerError as e:
         raise MalformedManifest(data) from e
+
+def _load_schema():
+    schema = _load(_SCHEMA_PATH.read_text(encoding=Manifest.encoding))
+    globals()["SCHEMA"] = schema
+    return schema
+
+def __getattr__(name: str) -> Any:
+    if name == "SCHEMA":
+        return _load_schema()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 def _west_commands_list(west_commands: Optional[WestCommandsType]) -> \
         list[str]:
@@ -587,10 +597,9 @@ def validate(data: Any) -> dict[str, Any]:
             raise MalformedManifest(msg)
 
     try:
-        pykwalify.core.Core(source_data=data,
-                            schema_files=[_SCHEMA_PATH]).validate()
-    except pykwalify.errors.SchemaError as se:
-        raise MalformedManifest(se.msg) from se
+        jsonschema.validate(data, sys.modules[__name__].SCHEMA)
+    except jsonschema.ValidationError as e:
+        raise MalformedManifest(e.message) from e
 
     return as_dict
 
