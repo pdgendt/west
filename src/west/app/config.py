@@ -5,9 +5,10 @@
 '''West config commands'''
 
 import argparse
+from pathlib import Path
 
 from west.commands import CommandError, WestCommand
-from west.configuration import ConfigFile
+from west.configuration import ConfigFile, Configuration, _InternalCF
 
 CONFIG_DESCRIPTION = '''\
 West configuration file handling.
@@ -137,6 +138,9 @@ class Config(WestCommand):
             const=LOCAL,
             help="this workspace's file",
         )
+        group.add_argument(
+            '-f', '--file', dest='file',
+            help='read/write/delete from a specific file')
 
         parser.add_argument(
             'name',
@@ -158,6 +162,22 @@ class Config(WestCommand):
         elif args.append:
             if args.value is None:
                 self.parser.error('-a requires both name and value')
+
+        if args.file:
+            if args.delete_all:
+                self.parser.error('-D/--delete-all cannot be used with --file')
+
+            if args.list:
+                self.file_list(args.file)
+            elif delete:
+                self.file_delete(args.file, args.name)
+            elif args.value is None:
+                self.file_read(args.file, args.name)
+            elif args.append:
+                self.file_append(args.file, args.name, args.value)
+            else:
+                self.file_write(args.file, args.name, args.value)
+            return
 
         if args.list:
             self.list(args)
@@ -225,6 +245,74 @@ class Config(WestCommand):
             self.config.set(args.name, args.value, configfile=what)
         except PermissionError as pe:
             self._perm_error(pe, what, args.name)
+
+    def file_list(self, fpath):
+        try:
+            cf = _InternalCF(Path(fpath))
+            for section in cf.cp.sections():
+                for key, value in cf.cp.items(section):
+                    self.inf(f'{section}.{key}={value}')
+        except FileNotFoundError:
+            pass  # Nothing to list.
+        except PermissionError as pe:
+            self.die(f"can't read {fpath}: {pe.strerror}")
+
+    def file_delete(self, fpath, name):
+        self.check_config(name)
+        try:
+            cf = _InternalCF(Path(fpath))
+            cf.delete(name)
+        except FileNotFoundError:
+            self.dbg(f'{name} was not set in {fpath} (file not found)')
+            raise CommandError(returncode=1)
+        except KeyError:
+            self.dbg(f'{name} was not set in {fpath}')
+            raise CommandError(returncode=1)
+        except PermissionError as pe:
+            self._perm_error_file(pe, fpath, name)
+
+    def file_read(self, fpath, name):
+        self.check_config(name)
+        try:
+            value = _InternalCF(Path(fpath)).get(name)
+            self.inf(value)
+        except FileNotFoundError:
+            self.err(f'{name} is unset (in {fpath}, which does not exist)')
+            raise CommandError(returncode=1)
+        except KeyError:
+            self.err(f'{name} is unset in {fpath}')
+            raise CommandError(returncode=1)
+        except PermissionError as pe:
+            self.die(f"can't read {fpath}: {pe.strerror}")
+
+    def file_append(self, fpath, name, value_to_append):
+        self.check_config(name)
+        path = Path(fpath)
+        try:
+            cf = _InternalCF(path)
+            current_value = cf.get(name)
+            cf.set(name, current_value + value_to_append)
+        except FileNotFoundError:
+            self.die(f'option {name} not found in {fpath} (file not found)')
+        except KeyError:
+            self.die(f'option {name} not found in {fpath}')
+        except PermissionError as pe:
+            self._perm_error_file(pe, fpath, name)
+
+    def file_write(self, fpath, name, value):
+        self.check_config(name)
+        path = Path(fpath)
+        try:
+            if not path.exists():
+                cf = Configuration._create(path)
+            else:
+                cf = _InternalCF(path)
+            cf.set(name, value)
+        except PermissionError as pe:
+            self._perm_error_file(pe, fpath, name)
+
+    def _perm_error_file(self, pe, fpath, name):
+        self.die(f"can't update {name}: permission denied when writing {fpath}")
 
     def _perm_error(self, pe, what, name):
         rootp = '; are you root/administrator?' if what in [SYSTEM, ALL] else ''
