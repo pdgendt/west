@@ -226,6 +226,26 @@ def test_manifest_path_and_out(west_init_tmpdir):
     assert 'net-tools' in [p['name'] for p in resolved['manifest']['projects']]
 
 
+def test_manifest_validate(west_init_tmpdir):
+    # 'west manifest --validate' must succeed quietly on a valid
+    # manifest and fail on a malformed one.
+
+    assert not cmd('manifest --validate').strip()
+
+    with open('zephyr/west.yml', 'w') as f:
+        f.write(
+            textwrap.dedent('''\
+            manifest:
+              projects:
+              - url: no-name.example.com
+            ''')
+        )
+
+    exc, stderr = cmd_raises('manifest --validate', SystemExit)
+    assert exc.value.code == 1
+    assert "can't run west manifest; it requires the manifest" in stderr
+
+
 def test_manifest_resolve_project_filter(west_init_tmpdir):
     # 'west manifest --resolve' is not supported when the
     # manifest.project-filter option is set, unless --active-only is
