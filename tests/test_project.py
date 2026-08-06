@@ -1302,6 +1302,38 @@ def test_update_some_with_imports(repos_tmpdir):
     assert manifest.get_projects(['Kconfiglib'])[0].is_cloned()
 
 
+def test_update_import_file_missing(repos_tmpdir):
+    # 'west update' in a workspace whose manifest imports a file that
+    # does not exist in the imported project must exit with an error
+    # message containing hints on how to fix the manifest.
+
+    remotes = repos_tmpdir / 'repos'
+
+    ws = repos_tmpdir / 'ws'
+    create_workspace(ws)
+    manifest_repo = ws / 'mp'
+    create_repo(manifest_repo)
+    add_commit(
+        manifest_repo,
+        'manifest repo commit',
+        files={
+            'west.yml': f'''
+                      manifest:
+                        projects:
+                        - name: zephyr
+                          url: {remotes / "zephyr"}
+                          import: no-such-file.yml
+                      '''
+        },
+    )
+
+    exc, stderr = cmd_raises('update', SystemExit, cwd=ws)
+    assert exc.value.code == 1
+    assert "can't import from project zephyr" in stderr
+    assert 'Expected to import from no-such-file.yml at revision' in stderr
+    assert 'Hint: possible manifest file fixes for zephyr' in stderr
+
+
 def test_update_submodules_list(repos_tmpdir):
     # The west update command should not only update projects,
     # but also its submodules. Test uses two pairs of project
