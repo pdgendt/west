@@ -979,6 +979,39 @@ def test_grep(west_init_tmpdir):
     assert re.search('west-commands', cmd('grep -- -- -commands'))
 
 
+def test_grep_tool_config(west_init_tmpdir):
+    # The grep tool and its executable path and color mode must be
+    # configurable, and a configured tool that cannot be found in PATH
+    # must produce a helpful error.
+
+    cmd('config grep.tool ripgrep')
+
+    empty_dir = west_init_tmpdir.mkdir('empty-dir')
+    exc, stderr = cmd_raises('grep hello', SystemExit, env={'PATH': str(empty_dir)})
+    assert exc.value.code == 1
+    assert 'grep tool "ripgrep" not found, please use --tool-path' in stderr
+
+    # The grep.<tool>-path configuration must override the PATH
+    # lookup; point git-grep's path option at the git executable.
+    cmd('config grep.tool git-grep')
+    cmd(['config', 'grep.git-grep-path', GIT])
+    cmd('config grep.color never')
+    assert 'net-tools' in cmd('grep net-')
+
+    # The --tool and --tool-path command line arguments must take
+    # precedence over the configuration.
+    out = cmd(['grep', '--tool', 'git-grep', '--tool-path', GIT, 'net-'])
+    assert 'net-tools' in out
+
+    # Without grep.color and with color.ui disabled, the tool must not
+    # colorize matches.
+    cmd('config -d grep.color')
+    cmd('config color.ui false')
+    out = cmd('grep net-')
+    assert 'net-tools' in out
+    assert '\x1b[' not in out
+
+
 def test_update_projects(west_init_tmpdir):
     # Test the 'west update' command. It calls through to the same backend
     # functions that are used for automatic updates and 'west init'
