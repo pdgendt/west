@@ -2509,6 +2509,19 @@ def test_init_with_clone_option_depth_one(repos_tmpdir):
     )
 
 
+def test_update_invalid_group_filter(west_init_tmpdir):
+    # Invalid 'west update --group-filter' items must be rejected with
+    # an error, both as single items and inside comma-separated lists.
+
+    exc, stderr = cmd_raises('update --group-filter foo', SystemExit)
+    assert exc.value.code == 1
+    assert 'invalid --group-filter item foo: must start with - or +' in stderr
+
+    exc, stderr = cmd_raises('update --group-filter +foo,bar', SystemExit)
+    assert exc.value.code == 1
+    assert 'invalid --group-filter item bar: must start with - or +' in stderr
+
+
 def test_update_with_groups_enabled(west_init_tmpdir):
     # Test "west update" with increasing numbers of groups enabled.
 
