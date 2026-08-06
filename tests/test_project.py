@@ -895,6 +895,16 @@ def test_forall_env_vars(west_init_tmpdir, test_case):
     ]
 
 
+def test_forall_failed(west_init_tmpdir):
+    # 'west forall' must report which projects the command failed in
+    # and signal the failure with its exit code.
+
+    cmd('update net-tools')
+    exc, stderr = cmd_raises(['forall', '-c', 'exit 1'], SystemExit)
+    assert exc.value.code == 1
+    assert 'forall failed for projects: manifest, net-tools' in stderr
+
+
 def test_grep(west_init_tmpdir):
     # Make sure we don't find things we don't expect, and do find
     # things we do.
