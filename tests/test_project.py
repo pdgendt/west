@@ -211,6 +211,21 @@ def test_list_special_chars(west_update_tmpdir):
     assert proj_yaml["path"] == forward_rel_path
 
 
+def test_manifest_path_and_out(west_init_tmpdir):
+    # 'west manifest --path' must print the absolute path of the top
+    # level manifest file, and '--out' must write the output to a file
+    # instead of standard output.
+
+    out = cmd('manifest --path')
+    assert Path(out.strip()) == Path(west_init_tmpdir) / 'zephyr' / 'west.yml'
+
+    outfile = Path(west_init_tmpdir) / 'resolved.yml'
+    out = cmd(['manifest', '--resolve', '-o', outfile])
+    assert not out.strip()
+    resolved = yaml.safe_load(outfile.read_text())
+    assert 'net-tools' in [p['name'] for p in resolved['manifest']['projects']]
+
+
 def test_list_groups(west_init_tmpdir):
     with open('zephyr/west.yml', 'w') as f:
         f.write("""
