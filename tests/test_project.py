@@ -986,6 +986,42 @@ def test_update_unknown_project_with_imports(repos_tmpdir):
     assert 'use "west list" to list all projects' in stderr
 
 
+def test_update_refuses_import_resolved_project(repos_tmpdir):
+    # 'west update <name>' must refuse to update a project whose
+    # definition was resolved via a project import, with a message
+    # pointing at plain 'west update'.
+
+    remotes = repos_tmpdir / 'repos'
+
+    ws = repos_tmpdir / 'ws'
+    create_workspace(ws)
+    manifest_repo = ws / 'mp'
+    create_repo(manifest_repo)
+    add_commit(
+        manifest_repo,
+        'manifest repo commit',
+        files={
+            'west.yml': f'''
+                      manifest:
+                        projects:
+                        - name: zephyr
+                          url: {remotes / "zephyr"}
+                          import: true
+                      '''
+        },
+    )
+
+    # Resolve all imports by cloning everything. Kconfiglib is defined
+    # in the west.yml of the zephyr project, not in the manifest
+    # repository.
+    cmd('update', cwd=ws)
+
+    exc, stderr = cmd_raises('update Kconfiglib', SystemExit, cwd=ws)
+    assert exc.value.code == 1
+    assert 'refusing to update project: Kconfiglib' in stderr
+    assert 'Only plain "west update" can currently update them' in stderr
+
+
 def test_update_projects_local_branch_commits(west_init_tmpdir):
     # Test the 'west update' command when working on local branch with local
     # commits and then updating project to upstream commit.
