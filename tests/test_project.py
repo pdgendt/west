@@ -1073,6 +1073,32 @@ def test_update_projects_local_branch_commits(west_init_tmpdir):
     assert tagged_repo_prev == head_subject('tagged_repo')
 
 
+def test_update_rebase_stats(west_init_tmpdir):
+    # 'west update --rebase --stats' must rebase a local branch with
+    # local commits onto the new manifest-rev and print performance
+    # statistics for the rebase.
+
+    cmd('update net-tools')
+
+    # Add a local commit on a branch, then move the remote ahead so
+    # that the local branch and the new manifest-rev diverge.
+    checkout_branch('net-tools', 'local-branch', create=True)
+    add_commit('net-tools', 'local commit')
+    nt_remote = west_init_tmpdir.join('..', 'repos', 'net-tools')
+    add_commit(nt_remote, 'new upstream commit')
+
+    out = cmd('update --rebase --stats net-tools')
+    assert 'west update: rebasing to manifest-rev' in out
+    assert 'rebase onto new manifest-rev' in out
+    assert 'performance statistics' in out
+
+    # The local commit must now be on top of the new upstream commit.
+    assert head_subject('net-tools') == 'local commit'
+    assert 'new upstream commit' in check_output(
+        [GIT, 'log', '--format=%s', 'HEAD~1'], cwd=west_init_tmpdir.join('net-tools')
+    )
+
+
 def test_update_fetch_strategy_config(west_init_tmpdir):
     # An invalid update.fetch configuration value must be ignored with
     # a warning, falling back to the default 'smart' strategy, while a
