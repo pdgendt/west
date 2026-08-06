@@ -781,6 +781,22 @@ def test_diff(west_init_tmpdir):
     cmd('update Kconfiglib')
 
 
+def test_diff_unknown_and_uncloned_projects(west_init_tmpdir):
+    # Commands that take a project list must exit with a helpful error
+    # message when given a name that is not in the manifest, or a
+    # project that is not cloned yet.
+
+    exc, stderr = cmd_raises('diff no-such-project', SystemExit)
+    assert exc.value.code == 1
+    assert 'unknown project name/path: no-such-project' in stderr
+    assert 'use "west list" to list all projects' in stderr
+
+    exc, stderr = cmd_raises('diff net-tools', SystemExit)
+    assert exc.value.code == 1
+    assert 'uncloned project: net-tools' in stderr
+    assert 'run "west update" and retry' in stderr
+
+
 def test_status(west_init_tmpdir):
     # FIXME: Check output
 
