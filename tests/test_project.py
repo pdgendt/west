@@ -1073,6 +1073,20 @@ def test_update_projects_local_branch_commits(west_init_tmpdir):
     assert tagged_repo_prev == head_subject('tagged_repo')
 
 
+def test_update_fetch_strategy_config(west_init_tmpdir):
+    # An invalid update.fetch configuration value must be ignored with
+    # a warning, falling back to the default 'smart' strategy, while a
+    # valid value must be accepted silently.
+
+    cmd('config update.fetch bogus')
+    out = cmd('update net-tools')
+    assert 'ignoring invalid config update.fetch=bogus; choices: always, smart' in out
+
+    cmd('config update.fetch always')
+    out = cmd('update net-tools')
+    assert 'ignoring invalid config' not in out
+
+
 def test_update_tag_to_tag(west_init_tmpdir):
     # Verify we can update the tagged_repo repo to a new tag.
 
