@@ -952,6 +952,40 @@ def test_update_projects(west_init_tmpdir):
     assert ur.tr_head_0 == ur.tr_head_1, 'tagged_repo HEAD changed'
 
 
+def test_update_unknown_project_with_imports(repos_tmpdir):
+    # 'west update <name>' with an unknown name in a workspace whose
+    # manifest uses imports must exit with the unknown-project error,
+    # also when all imports are resolvable.
+
+    remotes = repos_tmpdir / 'repos'
+
+    ws = repos_tmpdir / 'ws'
+    create_workspace(ws)
+    manifest_repo = ws / 'mp'
+    create_repo(manifest_repo)
+    add_commit(
+        manifest_repo,
+        'manifest repo commit',
+        files={
+            'west.yml': f'''
+                      manifest:
+                        projects:
+                        - name: zephyr
+                          url: {remotes / "zephyr"}
+                          import: true
+                      '''
+        },
+    )
+
+    # Resolve all imports by cloning everything.
+    cmd('update', cwd=ws)
+
+    exc, stderr = cmd_raises('update no-such-project', SystemExit, cwd=ws)
+    assert exc.value.code == 1
+    assert 'unknown project name/path: no-such-project' in stderr
+    assert 'use "west list" to list all projects' in stderr
+
+
 def test_update_projects_local_branch_commits(west_init_tmpdir):
     # Test the 'west update' command when working on local branch with local
     # commits and then updating project to upstream commit.
