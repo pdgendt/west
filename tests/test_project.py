@@ -226,6 +226,24 @@ def test_manifest_path_and_out(west_init_tmpdir):
     assert 'net-tools' in [p['name'] for p in resolved['manifest']['projects']]
 
 
+def test_manifest_resolve_project_filter(west_init_tmpdir):
+    # 'west manifest --resolve' is not supported when the
+    # manifest.project-filter option is set, unless --active-only is
+    # given.
+
+    cmd('config manifest.project-filter -- -tagged_repo')
+
+    exc, stderr = cmd_raises('manifest --resolve', SystemExit)
+    assert exc.value.code == 1
+    assert '"west manifest --resolve" is not (yet) supported' in stderr
+    assert 'Add --active-only' in stderr
+
+    resolved = yaml.safe_load(cmd('manifest --resolve --active-only'))
+    names = [p['name'] for p in resolved['manifest']['projects']]
+    assert 'net-tools' in names
+    assert 'tagged_repo' not in names
+
+
 def test_list_groups(west_init_tmpdir):
     with open('zephyr/west.yml', 'w') as f:
         f.write("""
