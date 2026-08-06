@@ -2160,6 +2160,21 @@ def test_init_again_no_zephyr_base_hint(west_init_tmpdir):
     assert str(Path(west_init_tmpdir) / '.west') in stderr
 
 
+def test_init_clone_failure_cleanup(tmpdir):
+    # A failed clone of the manifest repository must fail the command
+    # and must not leave the temporary manifest clone directory behind.
+
+    ws = tmpdir / 'ws'
+    exc, stderr = cmd_raises(
+        ['init', '-m', tmpdir / 'no-such-repo', '-t', ws],
+        SystemExit,
+        cwd=tmpdir,
+    )
+    assert exc.value.code != 0
+    assert 'command exited with status' in stderr
+    assert not (Path(ws) / '.west' / 'manifest-tmp').exists()
+
+
 def test_init_local_manifest_project(repos_tmpdir):
     # Do a local clone of manifest repo
     zephyr_install_dir = repos_tmpdir.join('workspace', 'zephyr')
