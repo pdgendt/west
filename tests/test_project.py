@@ -2429,6 +2429,16 @@ TEST_CASES_INIT_FAILS = [
         SystemExit,
         "argument is not relative",
     ),
+    # --manifest-file must be relative, like --manifest-path above.
+    (
+        None,
+        Path('subdir'),
+        None,
+        Path(os.path.abspath('/abs/west.yml')),
+        None,
+        SystemExit,
+        "argument is not relative",
+    ),
     # --manifest-path must stay within the workspace; a relative path that
     # uses ".." to climb out of the topdir is rejected.
     (
