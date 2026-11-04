@@ -13,7 +13,9 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import threading
 import time
+from contextlib import nullcontext
 from functools import partial
 from os.path import abspath, basename, relpath
 from pathlib import Path, PurePath
@@ -22,6 +24,7 @@ from typing import ClassVar
 from urllib.parse import urlparse
 
 from west import util
+from west.app import _parallel
 from west.commands import CommandError, Verbosity, WestCommand
 from west.configuration import Configuration
 from west.manifest import (
@@ -91,6 +94,57 @@ class _ProjectCommand(WestCommand):
                 # Should never happen, but re-raise to fail fast and
                 # preserve a stack trace, to encourage a bug report.
                 raise
+
+    def _add_jobs_argument(self, parser, config_key):
+        # Add the -j/--jobs option shared by commands that can work on
+        # several projects at once. The value is resolved by
+        # _resolve_jobs(); None means "not given on the command line".
+        parser.add_argument(
+            '-j',
+            '--jobs',
+            type=int,
+            default=None,
+            metavar='N',
+            help=f'''work on up to N projects at the same time (default: 1,
+            or the "{config_key}" configuration option). N=0 picks a number
+            based on the CPU count (at most {_parallel.MAX_AUTO_JOBS}).
+            With more than one job the output of
+            each project is printed as a whole once that project is done,
+            in completion order, and git shows no live progress; use -j 1 to
+            see git output as it happens, e.g. when debugging network
+            problems.''',
+        )
+        parser.add_argument(
+            '--buffered',
+            action=argparse.BooleanOptionalAction,
+            default=None,
+            help='''with more than one job, print each project's output as
+            a whole once that project is done (the default) rather than as
+            it happens; --no-buffered keeps output live, so lines from
+            different projects may interleave, which is what you need if git
+            has to prompt, e.g. for credentials. Ignored with one job.''',
+        )
+
+    def _resolve_jobs(self, args, config_key):
+        # Number of jobs to use: command line, then configuration, then 1.
+        jobs = args.jobs
+        if jobs is None:
+            try:
+                jobs = self.config.getint(config_key, default=1)
+            except ValueError:
+                self.die(f'invalid "{config_key}" configuration value: must be an integer')
+        if jobs < 0:
+            self.die(f'invalid number of jobs {jobs}: must not be negative')
+        if jobs == 0:
+            jobs = _parallel.auto_jobs()
+        return jobs
+
+    def _run_for_projects(self, projects, fn, jobs, buffered=True):
+        # Run fn(project) for each project, using up to 'jobs' threads.
+        # Returns (succeeded, failed); see west.app._parallel.
+        if jobs > 1 and len(projects) > 1:
+            self.small_banner(f'working on {len(projects)} projects with {jobs} jobs')
+        return _parallel.run_for_projects(projects, fn, jobs, buffered=buffered)
 
     def _handle_failed(self, args, failed):
         # Shared code for commands (like status, diff, update) that need
@@ -1352,6 +1406,7 @@ class Update(_ProjectCommand):
             help='''print performance statistics for
                             update operations''',
         )
+        self._add_jobs_argument(parser, 'update.jobs')
 
         group = parser.add_argument_group(
             title='local project clone caches',
@@ -1584,18 +1639,37 @@ class Update(_ProjectCommand):
         self.fs = self.fetch_strategy()
 
         self.updated = set()
+        self.jobs = self._resolve_jobs(args, 'update.jobs')
+
+        # With more than one job, update() runs in several threads at
+        # once. They only ever share read-only state, with two exceptions:
+        #
+        # - the lazily cached git version, which is populated here, before
+        #   any thread can race for it;
+        # - auto-cache mirrors, which are keyed by URL and so may be
+        #   shared by projects: _cache_lock_for() serializes their use.
+        if self.jobs > 1:
+            _ = self.git_version_info
+        self._cache_locks = {}
+        self._cache_locks_lock = threading.Lock()
+
+    def _cache_lock_for(self, project):
+        # Context manager serializing access to the project's auto-cache
+        # mirror (if any), which may be shared with other projects.
+        cache_dir = self.project_auto_cache(project)
+        if cache_dir is None:
+            return nullcontext()
+        with self._cache_locks_lock:
+            return self._cache_locks.setdefault(cache_dir, threading.Lock())
 
     def _update_projects(self, projects):
-        # Update each of the given projects, then report failures.
-        # Projects are expected to be independent: anything with an
-        # 'import:' must already have been handled.
-        failed = []
-        for project in projects:
-            try:
-                self.update(project)
-                self.updated.add(project.name)
-            except subprocess.CalledProcessError:
-                failed.append(project)
+        # Update each of the given projects, in parallel if requested,
+        # then report failures. Projects are expected to be independent:
+        # anything with an 'import:' must already have been handled.
+        succeeded, failed = self._run_for_projects(
+            projects, self.update, self.jobs, buffered=self.args.buffered is not False
+        )
+        self.updated.update(p.name for p in succeeded)
         self._handle_failed(self.args, failed)
 
     def update_all(self):
@@ -1996,7 +2070,10 @@ class Update(_ProjectCommand):
         # If there's a local clone available, it uses that. Otherwise,
         # it just creates the local repository and sets up the
         # convenience remote without fetching anything from the network.
+        with self._cache_lock_for(project):
+            self._init_project(project)
 
+    def _init_project(self, project):
         self.handle_auto_cache(project)
 
         cache_dir = self.project_cache(project)
@@ -2173,19 +2250,27 @@ class Update(_ProjectCommand):
         tags = ['--tags'] if not self.narrow else []
         clone_depth = ['--depth', str(project.clone_depth)] if project.clone_depth else []
 
-        # automatically fetch the auto-cache so that it is up-to-date
-        self.handle_auto_cache(project)
+        # Hold the auto-cache lock (if any) across both the sync and
+        # the fetch, so that another thread can't prune the cache while
+        # this one is fetching from it.
+        with self._cache_lock_for(project):
+            # automatically fetch the auto-cache so that it is up-to-date
+            self.handle_auto_cache(project)
 
-        # fetch workspace repository from freshly synced auto-cache if
-        # auto-cache is used. Otherwise fetch directly from remote url.
-        fetch_url = self.project_auto_cache(project) or project.url
+            # fetch workspace repository from freshly synced auto-cache if
+            # auto-cache is used. Otherwise fetch directly from remote url.
+            fetch_url = self.project_auto_cache(project) or project.url
 
-        # -f is needed to avoid errors in case multiple remotes are
-        # present, at least one of which contains refs that can't be
-        # fast-forwarded to our local ref space.
-        project.git(
-            ['fetch', '-f'] + tags + clone_depth + self.args.fetch_opt + ['--', fetch_url, refspec]
-        )
+            # -f is needed to avoid errors in case multiple remotes are
+            # present, at least one of which contains refs that can't be
+            # fast-forwarded to our local ref space.
+            project.git(
+                ['fetch', '-f']
+                + tags
+                + clone_depth
+                + self.args.fetch_opt
+                + ['--', fetch_url, refspec]
+            )
 
         if take_stats:
             stats['fetch'] = perf_counter() - start

@@ -6,6 +6,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
+import pytest
 from conftest import (
     GIT,
     add_commit,
@@ -184,7 +185,8 @@ def test_update_path_cache(tmpdir):
     assert remote_get_url(bar) == "file://" + os.fspath(Path('non-existent') / 'there')
 
 
-def test_update_auto_cache(tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_auto_cache(tmpdir, update_jobs):
     # Test that 'west update --auto-cache' works and does set up the local
     # cache correctly.
 
@@ -317,7 +319,8 @@ def test_update_auto_cache(tmpdir):
     assert bar_head_newer in rev_list(auto_cache_dir / "bar" / bar_hash)
 
 
-def test_update_auto_cache_skipped_remote_update(tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_auto_cache_skipped_remote_update(tmpdir, update_jobs):
     foo_remote = Path(tmpdir / 'remotes' / 'foo')
     bar_remote = Path(tmpdir / 'remotes' / 'bar')
     auto_cache_dir = Path(tmpdir / 'auto_cache_dir')

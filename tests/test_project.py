@@ -900,7 +900,8 @@ def test_grep(west_init_tmpdir):
     assert re.search('west-commands', cmd('grep -- -- -commands'))
 
 
-def test_update_projects(west_init_tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_projects(west_init_tmpdir, update_jobs):
     # Test the 'west update' command. It calls through to the same backend
     # functions that are used for automatic updates and 'west init'
     # reinitialization.
@@ -1107,7 +1108,8 @@ def test_update_head_0(west_init_tmpdir):
     assert modified_files.strip() == "M CODEOWNERS", 'local zephyr change not preserved'
 
 
-def test_update_some_with_imports(repos_tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_some_with_imports(repos_tmpdir, update_jobs):
     # 'west update project1 project2' should work fine even when
     # imports are used, as long as the relevant projects are all
     # defined in the manifest repository.
@@ -1311,7 +1313,8 @@ def test_update_submodules_list(repos_tmpdir):
     _match_multiline_regex(expected_res, actual)
 
 
-def test_update_all_submodules(repos_tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_all_submodules(repos_tmpdir, update_jobs):
     # The west update command should not only update projects,
     # but also its submodules. Test verifies whether setting submodules
     # value to boolean True results in updating all project submodules
@@ -1796,7 +1799,8 @@ manifest:
         expected_dir.check(dir=1)
 
 
-def test_update_recovery(tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_recovery(tmpdir, update_jobs):
     # Make sure that the final 'west update' can recover from the
     # following turn of events:
     #
@@ -2496,7 +2500,8 @@ def test_init_with_clone_option_depth_one(repos_tmpdir):
     )
 
 
-def test_update_with_groups_enabled(west_init_tmpdir):
+@pytest.mark.parametrize('update_jobs', [1, 2], indirect=True)
+def test_update_with_groups_enabled(west_init_tmpdir, update_jobs):
     # Test "west update" with increasing numbers of groups enabled.
 
     remotes = west_init_tmpdir / '..' / 'repos'

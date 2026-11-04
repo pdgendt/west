@@ -221,6 +221,20 @@ def setup_teardown_test_environment(tmpdir_factory):
 #
 
 
+@pytest.fixture
+def update_jobs(request):
+    """
+    Parametrize a test over the number of jobs 'west update' uses.
+
+    The value is written to the global configuration file as
+    'update.jobs', so every 'west update' the test runs picks it up
+    without the test having to pass -j itself. Returns the job count.
+    """
+    jobs = getattr(request, 'param', 1)
+    cmd(['config', '--global', 'update.jobs', str(jobs)])
+    return jobs
+
+
 @pytest.fixture(scope='session')
 def _session_repos(tmp_path_factory):
     '''Just a helper, do not use directly.'''
