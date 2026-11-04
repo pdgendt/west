@@ -1583,6 +1583,21 @@ class Update(_ProjectCommand):
 
         self.fs = self.fetch_strategy()
 
+        self.updated = set()
+
+    def _update_projects(self, projects):
+        # Update each of the given projects, then report failures.
+        # Projects are expected to be independent: anything with an
+        # 'import:' must already have been handled.
+        failed = []
+        for project in projects:
+            try:
+                self.update(project)
+                self.updated.add(project.name)
+            except subprocess.CalledProcessError:
+                failed.append(project)
+        self._handle_failed(self.args, failed)
+
     def update_all(self):
         # Plain 'west update' is the 'easy' case: since the user just
         # wants us to update everything, we don't have to keep track
@@ -1599,19 +1614,15 @@ class Update(_ProjectCommand):
             importer=self.update_importer, import_flags=ImportFlag.FORCE_PROJECTS
         )
 
-        failed = []
+        projects = []
         for project in self.manifest.projects:
             if isinstance(project, ManifestProject) or project.name in self.updated:
                 continue
-            try:
-                if not self.project_is_active(project):
-                    self.dbg(f'{project.name}: skipping inactive project')
-                    continue
-                self.update(project)
-                self.updated.add(project.name)
-            except subprocess.CalledProcessError:
-                failed.append(project)
-        self._handle_failed(self.args, failed)
+            if not self.project_is_active(project):
+                self.dbg(f'{project.name}: skipping inactive project')
+                continue
+            projects.append(project)
+        self._update_projects(projects)
 
     def update_importer(self, project, path):
         if isinstance(project, ManifestProject):
@@ -1671,15 +1682,14 @@ class Update(_ProjectCommand):
         else:
             projects = self._projects(self.args.projects)
 
-        failed = []
+        # get_projects() keeps duplicates ('west update foo foo', or a
+        # name and a path for the same project); update each one once.
+        unique = []
         for project in projects:
-            if isinstance(project, ManifestProject):
+            if isinstance(project, ManifestProject) or project in unique:
                 continue
-            try:
-                self.update(project)
-            except subprocess.CalledProcessError:
-                failed.append(project)
-        self._handle_failed(self.args, failed)
+            unique.append(project)
+        self._update_projects(unique)
 
     def toplevel_projects(self):
         # Return a list of projects from self.args.projects, or scream
