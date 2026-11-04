@@ -142,9 +142,12 @@ class _ProjectCommand(WestCommand):
     def _run_for_projects(self, projects, fn, jobs, buffered=True):
         # Run fn(project) for each project, using up to 'jobs' threads.
         # Returns (succeeded, failed); see west.app._parallel.
+        reporter = None
         if jobs > 1 and len(projects) > 1:
             self.small_banner(f'working on {len(projects)} projects with {jobs} jobs')
-        return _parallel.run_for_projects(projects, fn, jobs, buffered=buffered)
+            if buffered and self.verbosity >= Verbosity.INF and sys.stderr.isatty():
+                reporter = _parallel.StatusLineReporter()
+        return _parallel.run_for_projects(projects, fn, jobs, reporter, buffered=buffered)
 
     def _handle_failed(self, args, failed):
         # Shared code for commands (like status, diff, update) that need

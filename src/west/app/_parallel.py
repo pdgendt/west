@@ -13,16 +13,20 @@ Output is the hard part. With more than one job, each project's output
 (west's own messages and whatever git prints) is captured per thread
 with :mod:`west._output` and written to the terminal as one block when
 that project finishes, so blocks never interleave. A :class:`Reporter`
-decides how a finished block is shown.
+decides how a finished block is shown and, on a terminal, keeps a
+one-line status at the bottom so the user can see what is in flight.
 '''
 
 import concurrent.futures
 import os
+import shutil
 import subprocess
+import sys
 import threading
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TextIO
 
 from west import _output
 from west.manifest import Project
@@ -91,16 +95,89 @@ class Reporter:
     def finished(self, sink: _output.Sink) -> None:
         sink.replay()
 
+    def progress(self, done: int, total: int, in_flight: Iterable[Project]) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+class StatusLineReporter(Reporter):
+    '''Like :class:`Reporter`, plus a single rewritable status line on a
+    terminal, e.g. ``[3/42] updating: hal_nordic, mbedtls, ...``.
+
+    The line is cleared before a finished block is printed and redrawn
+    afterwards, so it always stays at the bottom. Only ``\\r`` and
+    padding spaces are used, which every terminal (and colorama on
+    Windows) handles.'''
+
+    def __init__(self, stream: TextIO | None = None, width: int | None = None):
+        self._stream = stream
+        self._width = width
+        self._shown = ''
+
+    @property
+    def stream(self) -> TextIO:
+        # Looked up lazily: colorama (and tests) rebind sys.stderr.
+        return self._stream if self._stream is not None else sys.stderr
+
+    def _columns(self) -> int:
+        if self._width is not None:
+            return self._width
+        return shutil.get_terminal_size().columns
+
+    def _clear(self) -> None:
+        if self._shown:
+            self.stream.write('\r' + ' ' * len(self._shown) + '\r')
+            self.stream.flush()
+            self._shown = ''
+
+    def _draw(self, line: str) -> None:
+        if line == self._shown:
+            return
+        pad = ' ' * max(0, len(self._shown) - len(line))
+        self.stream.write('\r' + line + pad + ('\r' if pad else ''))
+        self.stream.flush()
+        self._shown = line
+
+    def finished(self, sink: _output.Sink) -> None:
+        self._clear()
+        super().finished(sink)
+
+    def progress(self, done: int, total: int, in_flight: Iterable[Project]) -> None:
+        names = ', '.join(p.name for p in in_flight)
+        line = f'[{done}/{total}] updating: {names}'
+        # Leave one column free: writing into the last column makes some
+        # terminals wrap, which would break the single-line rewrite.
+        limit = self._columns() - 1
+        if len(line) > limit:
+            line = line[: max(0, limit - 3)] + '...'
+        self._draw(line)
+
+    def close(self) -> None:
+        self._clear()
+
 
 @dataclass
 class _Chain:
     '''Projects updated one after the other on one worker thread, plus
-    the bookkeeping the main thread needs to follow it.'''
+    the bookkeeping the main thread needs to follow and report on it.'''
 
     projects: list[Project]
     future: concurrent.futures.Future | None = None
+    # Index of the project being worked on: written by the worker, read
+    # by the main thread for the status line.
+    position: int = 0
     # Set by the main thread once the results have been taken over.
     collected: bool = False
+
+    @property
+    def current(self) -> Project:
+        return self.projects[self.position]
+
+    @property
+    def running(self) -> bool:
+        return self.future is not None and self.future.running()
 
     @property
     def finished(self) -> bool:
@@ -146,6 +223,7 @@ def run_for_projects(
         reporter = Reporter()
     order = {id(p): i for i, p in enumerate(projects)}
     work = [_Chain(chain) for chain in chains(projects)]
+    total = len(projects)
     # Set once the run is being abandoned (fatal error, Ctrl-C): chains
     # then stop before starting their next project.
     stop = threading.Event()
@@ -154,9 +232,10 @@ def run_for_projects(
         done: list[Project] = []
         bad: list[Project] = []
         exc: BaseException | None = None
-        for project in chain.projects:
+        for position, project in enumerate(chain.projects):
             if stop.is_set():
                 break
+            chain.position = position
             try:
                 fn(project)
                 done.append(project)
@@ -215,16 +294,23 @@ def run_for_projects(
                     # is already running so its output gets printed.
                     stop.set()
                     executor.shutdown(wait=False, cancel_futures=True)
+
+            if error is None and pending:
+                running = [chain for chain in work if chain.running]
+                done_count = len(succeeded) + len(failed) + sum(c.position for c in running)
+                reporter.progress(done_count, total, (c.current for c in running))
     except KeyboardInterrupt:
         # Git got the Ctrl-C too, so the running projects fail quickly;
         # wait for them and show what they printed, then give up.
         stop.set()
+        reporter.close()
         executor.shutdown(wait=True, cancel_futures=True)
         for chain in work:
             if chain.finished and not chain.collected:
                 collect(chain)
         raise
     finally:
+        reporter.close()
         executor.shutdown(wait=True)
 
     if error is not None:

@@ -5,11 +5,13 @@
 # Unit tests for west.app._parallel, using fake "projects" and no git.
 
 import _thread
+import io
 import os
 import subprocess
 import sys
 import threading
 import time
+from unittest.mock import patch
 
 import pytest
 
@@ -215,6 +217,23 @@ def test_run_for_projects_interrupt_replays_output(capsys):
     assert 'a was running' in capsys.readouterr().out
 
 
+def test_run_for_projects_chain_progress():
+    # The status line follows a chain project by project.
+    seen = []
+
+    class Recording(_parallel.Reporter):
+        def progress(self, done, total, in_flight):
+            seen.append((done, total, names(in_flight)))
+
+    def fn(p):
+        time.sleep(0.4)
+
+    ps = [project('a'), project('a/b'), project('c')]
+    _parallel.run_for_projects(ps, fn, 4, Recording())
+    assert (0, 3, ['a', 'c']) in seen
+    assert any(done >= 1 and 'a/b' in flight for done, _, flight in seen), seen
+
+
 def test_run_for_projects_chain_order():
     # Nested projects run after their parent in the same thread.
     ps = [project('a'), project('a/b'), project('c')]
@@ -226,3 +245,58 @@ def test_run_for_projects_chain_order():
     assert calls['a'] == calls['a/b']
     order = [n for n, _ in fn.calls]
     assert order.index('a') < order.index('a/b')
+
+
+class FakeTTY(io.StringIO):
+    def isatty(self):
+        return True
+
+
+def test_status_line_reporter():
+    stream = FakeTTY()
+    reporter = _parallel.StatusLineReporter(stream=stream, width=40)
+
+    reporter.progress(0, 3, [project('alpha'), project('beta')])
+    assert stream.getvalue() == '\r[0/3] updating: alpha, beta'
+
+    # Same line again: nothing is written.
+    reporter.progress(0, 3, [project('alpha'), project('beta')])
+    assert stream.getvalue() == '\r[0/3] updating: alpha, beta'
+
+    # A shorter line pads over the previous one.
+    stream.seek(0)
+    stream.truncate()
+    reporter.progress(1, 3, [project('beta')])
+    assert stream.getvalue() == '\r[1/3] updating: beta' + ' ' * 7 + '\r'
+
+    # Too long for the terminal: truncated with an ellipsis, never
+    # reaching the last column.
+    stream.seek(0)
+    stream.truncate()
+    reporter.progress(1, 3, [project('a-very-long-project-name-indeed')])
+    line = stream.getvalue().strip('\r')
+    assert len(line) == 39
+    assert line.endswith('...')
+
+    # A finished block clears the line, then replays the block.
+    stream.seek(0)
+    stream.truncate()
+    sink = _output.Sink()
+    sink.write(_output.STDERR, 'block\n')
+    with patch('sys.stderr', stream):
+        reporter.finished(sink)
+    assert stream.getvalue() == '\r' + ' ' * 39 + '\r' + 'block\n'
+
+    # Closing with nothing shown writes nothing.
+    stream.seek(0)
+    stream.truncate()
+    reporter.close()
+    assert stream.getvalue() == ''
+
+
+def test_status_line_reporter_default_stream(capsys):
+    reporter = _parallel.StatusLineReporter(width=80)
+    reporter.progress(2, 2, [])
+    reporter.close()
+    err = capsys.readouterr().err
+    assert err == '\r[2/2] updating: ' + '\r' + ' ' * len('[2/2] updating: ') + '\r'
