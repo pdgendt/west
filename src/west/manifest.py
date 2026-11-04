@@ -30,7 +30,7 @@ except ImportError:
 
 from packaging.version import parse as parse_version
 
-from west import util
+from west import _output, util
 from west.configuration import ConfigFile, Configuration, MalformedConfig
 from west.util import PathType
 
@@ -996,6 +996,11 @@ class Project:
         :param check: if given, ``subprocess.CalledProcessError`` is
             raised if git finishes with a non-zero return code
         :param cwd: directory to run git in (default: ``self.abspath``)
+
+        If the calling thread's output is being captured (see
+        ``west._output``), output that is not captured by the
+        *capture_stdout* / *capture_stderr* parameters is recorded there
+        instead of being written to the terminal.
         '''
         if isinstance(cmd, str):
             cmd_list = shlex.split(cmd)
@@ -1021,14 +1026,30 @@ class Project:
         cmd_str = util.quote_sh_list(args)
 
         _logger.debug(f"running '{cmd_str}' in {cwd}")
+
+        # When this thread's output is being captured (see west._output),
+        # git must not write to the real stdout/stderr either: pipe both
+        # streams and forward whatever the caller didn't ask for to the
+        # sink, so the CompletedProcess looks the same as without a sink.
+        sink = _output.current_sink()
         popen = subprocess.Popen(
             args,
             cwd=cwd,
-            stdout=subprocess.PIPE if capture_stdout else None,
-            stderr=subprocess.PIPE if capture_stderr else None,
+            stdout=subprocess.PIPE if capture_stdout or sink is not None else None,
+            stderr=subprocess.PIPE if capture_stderr or sink is not None else None,
         )
 
+        stdout: bytes | None
+        stderr: bytes | None
         stdout, stderr = popen.communicate()
+
+        if sink is not None:
+            if not capture_stdout:
+                sink.write_bytes(_output.STDOUT, stdout)
+                stdout = None
+            if not capture_stderr:
+                sink.write_bytes(_output.STDERR, stderr)
+                stderr = None
 
         # We use logger style % formatting here to avoid the
         # potentially expensive overhead of formatting long

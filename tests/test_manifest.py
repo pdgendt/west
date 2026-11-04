@@ -36,6 +36,7 @@ from conftest import (
     update_env,
 )
 
+from west import _output
 from west.configuration import ConfigFile, Configuration, MalformedConfig
 
 # White box checks for the schema version.
@@ -614,6 +615,53 @@ def test_project_repr():
         'clone_depth=None, west_commands=[\'some-path/west-commands.yml\'], '
         'topdir=None, groups=[], userdata=None)'
     )
+
+
+def test_project_git_output_capture(tmpdir, capfd):
+    # With a west._output sink installed for the calling thread,
+    # Project.git() must route git's output into the sink instead of
+    # the real streams, without changing what the caller gets back.
+    path = tmpdir / 'project'
+    create_repo(path)
+    add_commit(path, 'add a.txt', files={'a.txt': 'a'})
+    p = Project('project', 'ignore-this-url', topdir=tmpdir)
+    capfd.readouterr()  # drop the repository setup output
+
+    with _output.capture() as sink:
+        # Neither stream requested: both go to the sink, and the
+        # CompletedProcess looks like it does without a sink.
+        cp = p.git('show HEAD:a.txt')
+        assert cp.returncode == 0
+        assert cp.stdout is None
+        assert cp.stderr is None
+        assert sink.getvalue(_output.STDOUT) == 'a'
+
+        # Requested streams are returned, not recorded.
+        cp = p.git('show HEAD:a.txt', capture_stdout=True)
+        assert cp.stdout == b'a'
+        assert sink.getvalue(_output.STDOUT) == 'a'
+
+        # Errors: the exception carries only what was requested, the
+        # rest lands in the sink.
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            p.git('show HEAD:missing.txt')
+        assert exc_info.value.stdout is None
+        assert exc_info.value.stderr is None
+        assert 'missing.txt' in sink.getvalue(_output.STDERR)
+
+        with pytest.raises(subprocess.CalledProcessError) as exc_info:
+            p.git('show HEAD:missing.txt', capture_stderr=True)
+        assert exc_info.value.stderr is not None
+        assert b'missing.txt' in exc_info.value.stderr
+
+    # Nothing from git reached the real file descriptors.
+    captured = capfd.readouterr()
+    assert captured.out == ''
+    assert captured.err == ''
+
+    # Without a sink, output goes to the real streams as before.
+    p.git('show HEAD:a.txt')
+    assert capfd.readouterr().out == 'a'
 
 
 def test_project_sha(tmpdir):
