@@ -19,6 +19,7 @@ extensions = [
     "sphinx_tabs.tabs",
     'sphinx.ext.autodoc',
     "sphinx.ext.intersphinx",
+    "sphinxcontrib.mermaid",
 ]
 
 templates_path = [str(WEST_BASE / 'doc' / '_templates')]
@@ -58,6 +59,12 @@ intersphinx_mapping = {
 html_additional_pages = {"gsearch": "gsearch.html"}
 
 GITHUB_BLOB_URL = "https://github.com/zephyrproject-rtos/west/blob/main/doc/"
+
+# Same versions as the Zephyr documentation. Without mermaid_height, every
+# diagram is drawn in a box of a fixed height and centered in it.
+mermaid_version = "12.1.0"
+d3_version = "7.9.0"
+mermaid_height = "auto"
 
 linkcheck_ignore = [
     # Rate limits automated requests.
