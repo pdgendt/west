@@ -216,6 +216,13 @@ The following are example source code topologies supported by west.
 - T2: star topology, a Zephyr application is the manifest repository
 - T3: forest topology, freestanding manifest repository
 
+In the diagrams below, the rounded box is the :term:`manifest repository
+<west manifest repository>`, and a solid arrow points to the projects named in
+its manifest file. A dotted arrow points to the projects that are added by
+:ref:`importing <west-manifest-import>` the manifest file of the project it
+starts from. Projects are shown by name; the directory listings show where
+they are located in the workspace.
+
 T1: Star topology, zephyr is the manifest repository
 ====================================================
 
@@ -223,6 +230,29 @@ T1: Star topology, zephyr is the manifest repository
   its :ref:`modules` in its :file:`west.yml`
 - Analogy with existing mechanisms: Git submodules with zephyr as the
   super-project
+
+.. mermaid::
+   :alt: T1 topology: the zephyr repository is the manifest repository and
+         its west.yml names the projects, such as hal_nordic, zcbor and
+         net-tools.
+   :align: center
+
+   ---
+   config:
+     flowchart:
+       useMaxWidth: false
+   ---
+   flowchart LR
+       zephyr(["zephyr<br><small style='opacity: 0.6'>west.yml</small>"])
+       subgraph projects [projects]
+           direction TB
+           hal[hal_nordic]
+           zcbor[zcbor]
+           tools[net-tools]
+           other[other projects]
+       end
+       zephyr --> projects
+       style projects fill:none,stroke:#888,stroke-dasharray: 4 4,filter:none
 
 This is the default. See :ref:`west-workspace` for how mainline Zephyr is an
 example of this topology.
@@ -238,6 +268,30 @@ T2: Star topology, application is the manifest repository
   includes the zephyr repository and any modules.
 - Analogy with existing mechanisms: Git submodules with the application as
   the super-project, zephyr and other projects as submodules
+
+.. mermaid::
+   :alt: T2 topology: the application repository is the manifest repository.
+         Its west.yml names the zephyr project, and the module projects come
+         from importing zephyr's west.yml.
+   :align: center
+
+   ---
+   config:
+     flowchart:
+       useMaxWidth: false
+   ---
+   flowchart LR
+       app(["application<br><small style='opacity: 0.6'>west.yml</small>"])
+       subgraph imported [imported]
+           direction TB
+           hal[hal_nordic]
+           zcbor[zcbor]
+           tools[net-tools]
+           other[other projects]
+       end
+       app --> zephyr["zephyr<br><small style='opacity: 0.6'>west.yml</small>"]
+       zephyr -.-> imported
+       style imported fill:none,stroke:#888,stroke-dasharray: 4 4,filter:none
 
 A workspace using this topology looks like this:
 
@@ -325,6 +379,32 @@ T3: Forest topology
 - A dedicated manifest repository which contains no Zephyr source code,
   and specifies a list of projects all at the same "level"
 - Analogy with existing mechanisms: Google repo-based source distribution
+
+.. mermaid::
+   :alt: T3 topology: a dedicated manifest repository whose west.yml names the
+         app1, app2 and zephyr projects, with the module projects coming from
+         importing zephyr's west.yml.
+   :align: center
+
+   ---
+   config:
+     flowchart:
+       useMaxWidth: false
+   ---
+   flowchart LR
+       mr(["manifest-repo<br><small style='opacity: 0.6'>west.yml</small>"])
+       subgraph imported [imported]
+           direction TB
+           hal[hal_nordic]
+           zcbor[zcbor]
+           tools[net-tools]
+           other[other projects]
+       end
+       mr --> app1[app1]
+       mr --> app2[app2]
+       mr --> zephyr["zephyr<br><small style='opacity: 0.6'>west.yml</small>"]
+       zephyr -.-> imported
+       style imported fill:none,stroke:#888,stroke-dasharray: 4 4,filter:none
 
 A workspace using this topology looks like this:
 
